@@ -1,0 +1,160 @@
+-- ******************************************************
+-- 1 & 2. DISEÑO Y CREACIÓN DE LAS TABLAS (SQL Server)
+-- ******************************************************
+ 
+-- Eliminar tablas si existen para poder ejecutar el script varias veces
+IF OBJECT_ID('Detalle_Orden', 'U') IS NOT NULL DROP TABLE Detalle_Orden;
+IF OBJECT_ID('Ordenes', 'U') IS NOT NULL DROP TABLE Ordenes;
+IF OBJECT_ID('Clientes', 'U') IS NOT NULL DROP TABLE Clientes;
+IF OBJECT_ID('Productos', 'U') IS NOT NULL DROP TABLE Productos;
+ 
+ 
+-- Tabla Productos
+CREATE TABLE Productos (
+    producto_id INT PRIMARY KEY IDENTITY(1,1), -- IDENTITY para auto-incremento en SQL Server
+    nombre VARCHAR(100) NOT NULL,
+    precio DECIMAL(10, 2) NOT NULL,
+    stock INT NOT NULL
+);
+ 
+-- Tabla Clientes
+CREATE TABLE Clientes (
+    cliente_id INT PRIMARY KEY IDENTITY(1,1), -- IDENTITY para auto-incremento
+    nombre VARCHAR(100) NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL
+);
+ 
+-- Tabla Órdenes (Encabezado)
+CREATE TABLE Ordenes (
+    orden_id INT PRIMARY KEY IDENTITY(1,1), -- IDENTITY para auto-incremento
+    cliente_id INT NOT NULL,
+    fecha_orden DATE NOT NULL,
+    total DECIMAL(10, 2) NOT NULL,
+    FOREIGN KEY (cliente_id) REFERENCES Clientes(cliente_id)
+);
+ 
+-- Tabla Detalle_Orden
+CREATE TABLE Detalle_Orden (
+    detalle_id INT PRIMARY KEY IDENTITY(1,1), -- IDENTITY para auto-incremento
+    orden_id INT NOT NULL,
+    producto_id INT NOT NULL,
+    cantidad INT NOT NULL,
+    precio_unitario DECIMAL(10, 2) NOT NULL,
+    FOREIGN KEY (orden_id) REFERENCES Ordenes(orden_id),
+    FOREIGN KEY (producto_id) REFERENCES Productos(producto_id)
+);
+ 
+-- ******************************************************
+-- 3. INSERCIÓN DE DATOS INICIALES
+-- ******************************************************
+ 
+-- Productos
+INSERT INTO Productos (nombre, precio, stock) VALUES
+('Laptop de 15"', 1200.00, 50),
+('Mouse Inalámbrico', 25.00, 200),
+('Monitor 4K', 450.00, 30),
+('Teclado Mecánico', 80.00, 100);
+ 
+-- Clientes
+INSERT INTO Clientes (nombre, email) VALUES
+('Ana García', 'ana.garcia@email.com'),
+('Luis Pérez', 'luis.perez@email.com'),
+('Sofía Rojas', 'sofia.rojas@email.com');
+ 
+-- Órdenes y Detalle
+INSERT INTO Ordenes (cliente_id, fecha_orden, total) VALUES
+(1, CAST(GETDATE() AS DATE), 1225.00), -- Usamos GETDATE() para la fecha actual
+(2, DATEADD(day, -1, GETDATE()), 450.00);
+ 
+INSERT INTO Detalle_Orden (orden_id, producto_id, cantidad, precio_unitario) VALUES
+(1, 1, 1, 1200.00),
+(1, 2, 1, 25.00),
+(2, 3, 1, 450.00);
+ 
+-- ******************************************************
+-- 4. CONSULTAS SELECT
+-- ******************************************************
+ 
+-- a. Productos con precio mayor a 100.00
+SELECT nombre, precio, stock
+FROM Productos
+WHERE precio > 100.00;
+ 
+-- b. Clientes con órdenes registradas
+SELECT DISTINCT C.nombre, C.email
+FROM Clientes C
+INNER JOIN Ordenes O ON C.cliente_id = O.cliente_id;
+ 
+-- ******************************************************
+-- 5. JOIN para combinar clientes y sus órdenes
+-- ******************************************************
+SELECT
+    C.nombre AS Nombre_Cliente,
+    O.orden_id AS ID_Orden,
+    O.fecha_orden AS Fecha_Pedido,
+    O.total AS Total_Orden
+FROM Clientes C
+INNER JOIN Ordenes O ON C.cliente_id = O.cliente_id
+ORDER BY O.fecha_orden DESC;
+ 
+ 
+-- ******************************************************
+-- 6. TRANSACCIÓN PARA SIMULAR UNA VENTA (SQL Server)
+-- (Venta de 2 Teclados Mecánicos al Cliente 3)
+-- ******************************************************
+ 
+-- Declarar variables en T-SQL
+DECLARE @cliente_id_venta INT = 3;
+DECLARE @producto_id_venta INT = 4; -- Teclado Mecánico
+DECLARE @cantidad_vendida INT = 2;
+DECLARE @precio_unitario_venta DECIMAL(10, 2) = 80.00;
+DECLARE @nuevo_total_orden DECIMAL(10, 2);
+DECLARE @nueva_orden_id INT;
+ 
+SET @nuevo_total_orden = @cantidad_vendida * @precio_unitario_venta;
+ 
+-- Iniciar Transacción
+BEGIN TRANSACTION;
+ 
+BEGIN TRY
+    -- a. Disminuir el stock
+    UPDATE Productos
+    SET stock = stock - @cantidad_vendida
+    WHERE producto_id = @producto_id_venta;
+ 
+    -- b. Registrar la orden (Encabezado)
+    INSERT INTO Ordenes (cliente_id, fecha_orden, total)
+    VALUES (@cliente_id_venta, CAST(GETDATE() AS DATE), @nuevo_total_orden);
+ 
+    -- Capturar el ID de la nueva orden (SCOPE_IDENTITY() en SQL Server)
+    SET @nueva_orden_id = SCOPE_IDENTITY();
+ 
+    -- b. Registrar el Detalle
+    INSERT INTO Detalle_Orden (orden_id, producto_id, cantidad, precio_unitario)
+    VALUES (@nueva_orden_id, @producto_id_venta, @cantidad_vendida, @precio_unitario_venta);
+ 
+    -- c. Confirmar (COMMIT) si todo fue exitoso
+    COMMIT TRANSACTION;
+ 
+    SELECT 'TRANSACCIÓN EXITOSA: Venta registrada y stock actualizado.' AS Mensaje;
+END TRY
+BEGIN CATCH
+    -- c. Revertir (ROLLBACK) en caso de error
+    IF @@TRANCOUNT > 0
+        ROLLBACK TRANSACTION;
+ 
+    SELECT ERROR_MESSAGE() AS Mensaje_Error;
+END CATCH
+ 
+-- ******************************************************
+-- CONSULTAS DE VERIFICACIÓN FINAL
+-- ******************************************************
+ 
+SELECT 'Inventario Actualizado:' AS Tipo, nombre, stock
+FROM Productos
+WHERE producto_id = @producto_id_venta;
+ 
+SELECT 'Orden Registrada:' AS Tipo, O.orden_id, C.nombre AS Cliente, O.total
+FROM Ordenes O
+JOIN Clientes C ON O.cliente_id = C.cliente_id
+WHERE O.orden_id = @nueva_orden_id;
